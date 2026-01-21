@@ -84,6 +84,7 @@ export default function App() {
   const [data, setData] = useState(loadData);
   const [currentView, setCurrentView] = useState('dashboard');
   const [showAddRecord, setShowAddRecord] = useState(false);
+  const [editingRecord, setEditingRecord] = useState(null);
 
   useEffect(() => {
     saveData(data);
@@ -122,6 +123,16 @@ export default function App() {
     setShowAddRecord(false);
   };
 
+  const handleUpdateRecord = (updatedRecord, originalDate) => {
+    setData(prev => ({
+      ...prev,
+      records: prev.records.map(r => 
+        r.date === originalDate ? updatedRecord : r
+      )
+    }));
+    setEditingRecord(null);
+  };
+
   const handleDeleteRecord = (date) => {
     setData(prev => ({
       ...prev,
@@ -154,11 +165,6 @@ export default function App() {
 
   return (
     <div style={styles.container}>
-      {/* 頂部標題 */}
-      <header style={styles.header}>
-        <h1 style={styles.title}>資產配置追蹤</h1>
-      </header>
-
       {/* 主要內容區 */}
       <main style={styles.main}>
         {currentView === 'dashboard' && (
@@ -176,6 +182,7 @@ export default function App() {
             accounts={data.accounts}
             calculateTotal={calculateTotal}
             onDelete={handleDeleteRecord}
+            onEdit={setEditingRecord}
           />
         )}
         
@@ -232,6 +239,20 @@ export default function App() {
               lastRecord={data.records.length > 0 ? [...data.records].sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null}
               onSave={handleAddRecord}
               onCancel={() => setShowAddRecord(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 編輯記錄 Modal */}
+      {editingRecord && (
+        <div style={styles.modalOverlay} onClick={() => setEditingRecord(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <EditRecordForm 
+              accounts={data.accounts}
+              record={editingRecord}
+              onSave={handleUpdateRecord}
+              onCancel={() => setEditingRecord(null)}
             />
           </div>
         </div>
@@ -341,7 +362,7 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
 }
 
 // 記錄列表元件
-function RecordList({ records, accounts, calculateTotal, onDelete }) {
+function RecordList({ records, accounts, calculateTotal, onDelete, onEdit }) {
   const sortedRecords = [...records].sort((a, b) => new Date(b.date) - new Date(a.date));
   const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]));
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -376,16 +397,24 @@ function RecordList({ records, accounts, calculateTotal, onDelete }) {
                 </div>
               ))}
             </div>
-            <button 
-              style={{
-                ...styles.deleteButton,
-                backgroundColor: confirmDelete === record.date ? '#dc2626' : '#374151',
-                color: confirmDelete === record.date ? '#ffffff' : '#9ca3af',
-              }}
-              onClick={() => handleDelete(record.date)}
-            >
-              {confirmDelete === record.date ? '確認刪除' : '刪除'}
-            </button>
+            <div style={styles.recordActions}>
+              <button 
+                style={styles.editButton}
+                onClick={() => onEdit(record)}
+              >
+                修改
+              </button>
+              <button 
+                style={{
+                  ...styles.deleteButton,
+                  backgroundColor: confirmDelete === record.date ? '#dc2626' : '#374151',
+                  color: confirmDelete === record.date ? '#ffffff' : '#9ca3af',
+                }}
+                onClick={() => handleDelete(record.date)}
+              >
+                {confirmDelete === record.date ? '確認刪除' : '刪除'}
+              </button>
+            </div>
           </div>
         ))
       )}
@@ -581,6 +610,90 @@ function AddRecordForm({ accounts, lastRecord, onSave, onCancel }) {
   );
 }
 
+// 編輯記錄表單
+function EditRecordForm({ accounts, record, onSave, onCancel }) {
+  const [date, setDate] = useState(record.date);
+  const [error, setError] = useState('');
+  const [assets, setAssets] = useState(() => {
+    const initial = {};
+    accounts.forEach(acc => {
+      initial[acc.id] = record.assets[acc.id] || '';
+    });
+    return initial;
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError('');
+    
+    const processedAssets = {};
+    Object.entries(assets).forEach(([id, value]) => {
+      const num = parseInt(value) || 0;
+      if (num > 0) processedAssets[id] = num;
+    });
+    
+    if (Object.keys(processedAssets).length === 0) {
+      setError('請至少填寫一個帳戶的金額');
+      return;
+    }
+
+    onSave({ date, assets: processedAssets }, record.date);
+  };
+
+  return (
+    <div style={styles.addRecordForm}>
+      <div style={styles.modalHeader}>
+        <h2 style={styles.modalTitle}>修改資產記錄</h2>
+        <button style={styles.closeButton} onClick={onCancel}>✕</button>
+      </div>
+      
+      {error && (
+        <div style={styles.errorMessage}>{error}</div>
+      )}
+      
+      <form onSubmit={handleSubmit}>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>日期</label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            style={styles.input}
+          />
+        </div>
+        
+        <div style={styles.assetInputs}>
+          {accounts.map(account => (
+            <div key={account.id} style={styles.assetInputRow}>
+              <label style={styles.assetLabel}>
+                {account.name}
+                <span style={styles.assetCategory}>({account.category})</span>
+              </label>
+              <input
+                type="number"
+                value={assets[account.id]}
+                onChange={(e) => setAssets({ ...assets, [account.id]: e.target.value })}
+                style={styles.assetInput}
+                placeholder="0"
+                min="0"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div style={styles.formActions}>
+          <button type="button" style={styles.cancelButton} onClick={onCancel}>
+            取消
+          </button>
+          <button type="submit" style={styles.submitButton}>
+            儲存修改
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // 樣式定義 - 深色主題
 const styles = {
   container: {
@@ -602,7 +715,7 @@ const styles = {
     letterSpacing: '1px',
   },
   main: {
-    padding: '16px',
+    padding: '24px 16px 16px 16px',
     maxWidth: '800px',
     margin: '0 auto',
   },
@@ -776,8 +889,22 @@ const styles = {
     fontSize: '14px',
     fontWeight: '600',
   },
-  deleteButton: {
+  recordActions: {
+    display: 'flex',
+    gap: '8px',
     marginTop: '12px',
+  },
+  editButton: {
+    padding: '8px 16px',
+    backgroundColor: '#065f46',
+    color: '#10b981',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  deleteButton: {
     padding: '8px 16px',
     backgroundColor: '#374151',
     color: '#9ca3af',
