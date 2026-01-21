@@ -325,34 +325,52 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
       <div style={styles.chartCard}>
         <h3 style={styles.chartTitle}>資產配置比例</h3>
         {pieData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                innerRadius={50}
-                outerRadius={85}
-                paddingAngle={3}
-                dataKey="value"
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={{ stroke: '#6b7280', strokeWidth: 1 }}
-              >
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip 
-                formatter={(value) => formatCurrency(value)} 
-                contentStyle={{ 
-                  backgroundColor: '#1f2937', 
-                  border: '1px solid #374151',
-                  borderRadius: '8px',
-                  color: '#f3f4f6'
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={45}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  formatter={(value) => formatCurrency(value)} 
+                  contentStyle={{ 
+                    backgroundColor: '#1f2937', 
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    color: '#f3f4f6'
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={styles.legendList}>
+              {pieData.map((item, index) => {
+                const total = pieData.reduce((sum, d) => sum + d.value, 0);
+                const percent = ((item.value / total) * 100).toFixed(1);
+                return (
+                  <div key={item.name} style={styles.legendItem}>
+                    <div style={styles.legendLeft}>
+                      <div style={{...styles.legendDot, backgroundColor: COLORS[index % COLORS.length]}} />
+                      <span style={styles.legendName}>{item.name}</span>
+                    </div>
+                    <div style={styles.legendRight}>
+                      <span style={styles.legendValue}>{formatCurrency(item.value)}</span>
+                      <span style={styles.legendPercent}>{percent}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         ) : (
           <div style={styles.emptyChart}>尚無記錄</div>
         )}
@@ -821,6 +839,54 @@ const styles = {
     justifyContent: 'center',
     color: '#6b7280',
     fontSize: '15px',
+  },
+  legendList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginTop: '16px',
+    paddingTop: '16px',
+    borderTop: '1px solid #374151',
+  },
+  legendItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 12px',
+    backgroundColor: '#111827',
+    borderRadius: '8px',
+  },
+  legendLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  legendDot: {
+    width: '12px',
+    height: '12px',
+    borderRadius: '3px',
+    flexShrink: 0,
+  },
+  legendName: {
+    color: '#f3f4f6',
+    fontSize: '14px',
+    fontWeight: '500',
+  },
+  legendRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  legendValue: {
+    color: '#9ca3af',
+    fontSize: '13px',
+  },
+  legendPercent: {
+    color: '#10b981',
+    fontSize: '14px',
+    fontWeight: '600',
+    minWidth: '50px',
+    textAlign: 'right',
   },
 
   // 記錄列表
