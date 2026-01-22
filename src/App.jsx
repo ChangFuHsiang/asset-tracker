@@ -1120,6 +1120,7 @@ const styles = {
   },
   input: {
     padding: '12px 14px',
+    paddingRight: '24px',
     backgroundColor: '#111827',
     border: '1px solid #374151',
     borderRadius: '8px',
