@@ -192,6 +192,8 @@ export default function App() {
             onAdd={handleAddAccount}
             onToggle={handleToggleAccount}
             onDelete={handleDeleteAccount}
+            allData={data}
+            onImportData={setData}
           />
         )}
       </main>
@@ -441,10 +443,12 @@ function RecordList({ records, accounts, calculateTotal, onDelete, onEdit }) {
 }
 
 // 帳戶管理元件
-function AccountManager({ accounts, onAdd, onToggle, onDelete }) {
+function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImportData }) {
   const [showForm, setShowForm] = useState(false);
   const [newAccount, setNewAccount] = useState({ name: '', category: '銀行' });
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [importMessage, setImportMessage] = useState(null);
+  const fileInputRef = React.useRef(null);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -463,6 +467,65 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete }) {
     } else {
       setConfirmDelete(id);
     }
+  };
+
+  // 匯出 JSON
+  const handleExport = () => {
+    const dataStr = JSON.stringify(allData, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}`;
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `asset-tracker-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    setImportMessage({ type: 'success', text: '匯出成功！' });
+    setTimeout(() => setImportMessage(null), 3000);
+  };
+
+  // 匯入 JSON
+  const handleImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        
+        // 驗證資料結構
+        if (!imported.accounts || !Array.isArray(imported.accounts)) {
+          throw new Error('無效的資料格式：缺少 accounts');
+        }
+        if (!imported.records || !Array.isArray(imported.records)) {
+          throw new Error('無效的資料格式：缺少 records');
+        }
+
+        // 確認匯入
+        const accountCount = imported.accounts.length;
+        const recordCount = imported.records.length;
+        
+        if (window.confirm(`確定要匯入嗎？\n\n將匯入 ${accountCount} 個帳戶、${recordCount} 筆記錄。\n\n⚠️ 這會覆蓋目前所有資料！`)) {
+          onImportData(imported);
+          setImportMessage({ type: 'success', text: `匯入成功！已載入 ${accountCount} 個帳戶、${recordCount} 筆記錄` });
+        }
+      } catch (err) {
+        setImportMessage({ type: 'error', text: `匯入失敗：${err.message}` });
+      }
+      
+      // 清空 input 讓同一個檔案可以再次選擇
+      e.target.value = '';
+      setTimeout(() => setImportMessage(null), 5000);
+    };
+    
+    reader.readAsText(file);
   };
 
   return (
@@ -538,6 +601,47 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete }) {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* 資料備份區塊 */}
+      <div style={styles.backupSection}>
+        <h3 style={styles.backupTitle}>資料備份</h3>
+        
+        {importMessage && (
+          <div style={{
+            ...styles.importMessage,
+            backgroundColor: importMessage.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            borderColor: importMessage.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+            color: importMessage.type === 'success' ? '#10b981' : '#ef4444',
+          }}>
+            {importMessage.text}
+          </div>
+        )}
+
+        <div style={styles.backupInfo}>
+          <span style={styles.backupInfoText}>
+            目前有 {accounts.length} 個帳戶、{allData.records.length} 筆記錄
+          </span>
+        </div>
+
+        <div style={styles.backupButtons}>
+          <button style={styles.exportButton} onClick={handleExport}>
+            ↓ 匯出備份
+          </button>
+          <button 
+            style={styles.importButton} 
+            onClick={() => fileInputRef.current?.click()}
+          >
+            ↑ 匯入備份
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImport}
+            style={{ display: 'none' }}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1057,6 +1161,58 @@ const styles = {
     fontSize: '12px',
     cursor: 'pointer',
     transition: 'all 0.2s',
+  },
+  backupSection: {
+    marginTop: '32px',
+    paddingTop: '24px',
+    borderTop: '1px solid #374151',
+  },
+  backupTitle: {
+    color: '#f3f4f6',
+    fontSize: '16px',
+    fontWeight: '600',
+    margin: '0 0 16px 0',
+  },
+  backupInfo: {
+    marginBottom: '16px',
+  },
+  backupInfoText: {
+    color: '#6b7280',
+    fontSize: '14px',
+  },
+  backupButtons: {
+    display: 'flex',
+    gap: '12px',
+  },
+  exportButton: {
+    flex: 1,
+    padding: '14px',
+    backgroundColor: '#065f46',
+    color: '#10b981',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '15px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  importButton: {
+    flex: 1,
+    padding: '14px',
+    backgroundColor: '#374151',
+    color: '#9ca3af',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '15px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  importMessage: {
+    padding: '12px 16px',
+    borderRadius: '8px',
+    marginBottom: '16px',
+    fontSize: '14px',
+    fontWeight: '500',
+    border: '1px solid',
   },
 
   // Modal
