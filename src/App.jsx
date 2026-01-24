@@ -1,6 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
+// 離線狀態 Hook
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+  
+  return isOnline;
+}
+
 // 預設資料結構
 const defaultData = {
   accounts: [
@@ -85,6 +105,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [showAddRecord, setShowAddRecord] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const isOnline = useOnlineStatus();
 
   useEffect(() => {
     saveData(data);
@@ -165,6 +186,13 @@ export default function App() {
 
   return (
     <div style={styles.container}>
+      {/* 離線提示 */}
+      {!isOnline && (
+        <div style={styles.offlineBanner}>
+          📴 目前處於離線模式，資料會儲存在本地
+        </div>
+      )}
+
       {/* 主要內容區 */}
       <main style={styles.main}>
         {currentView === 'dashboard' && (
@@ -823,6 +851,15 @@ const styles = {
     backgroundColor: '#111827',
     fontFamily: "'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif",
     paddingBottom: '80px',
+  },
+  offlineBanner: {
+    backgroundColor: '#292524',
+    color: '#fbbf24',
+    padding: '10px 16px',
+    fontSize: '13px',
+    fontWeight: '500',
+    textAlign: 'center',
+    borderBottom: '1px solid #44403c',
   },
   header: {
     backgroundColor: '#1f2937',
