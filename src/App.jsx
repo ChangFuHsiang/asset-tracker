@@ -875,9 +875,10 @@ function EditRecordForm({ accounts, record, onSave, onCancel }) {
 const styles = {
   container: {
     minHeight: '100vh',
+    minHeight: '100dvh',
     backgroundColor: '#111827',
     fontFamily: "'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif",
-    paddingBottom: '80px',
+    paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
   },
   offlineBanner: {
     backgroundColor: '#292524',
@@ -917,6 +918,7 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-around',
     padding: '8px 0',
+    paddingBottom: 'calc(8px + env(safe-area-inset-bottom, 0px))',
     zIndex: 100,
   },
   navItem: {
@@ -942,7 +944,7 @@ const styles = {
   // 浮動按鈕
   fab: {
     position: 'fixed',
-    bottom: '90px',
+    bottom: 'calc(90px + env(safe-area-inset-bottom, 0px))',
     right: '20px',
     width: '56px',
     height: '56px',
