@@ -50,8 +50,16 @@ const saveData = (data) => {
 // 生成唯一 ID
 const generateId = () => `acc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-// 格式化金額
+// 格式化金額（處理大數字）
 const formatCurrency = (amount) => {
+  // 超過 1 億，顯示為「億」
+  if (amount >= 100000000) {
+    return `$${(amount / 100000000).toFixed(2)}億`;
+  }
+  // 超過 1 萬，顯示為「萬」
+  if (amount >= 100000000000) {
+    return `$${(amount / 10000).toFixed(0)}萬`;
+  }
   return new Intl.NumberFormat('zh-TW', {
     style: 'currency',
     currency: 'TWD',
@@ -137,20 +145,53 @@ export default function App() {
   };
 
   const handleAddRecord = (newRecord) => {
-    setData(prev => ({
-      ...prev,
-      records: [...prev.records, newRecord]
-    }));
+    setData(prev => {
+      // 檢查是否已有該日期的記錄
+      const existingIndex = prev.records.findIndex(r => r.date === newRecord.date);
+      
+      if (existingIndex !== -1) {
+        // 該日期已有記錄，覆蓋它
+        const updatedRecords = [...prev.records];
+        updatedRecords[existingIndex] = newRecord;
+        return {
+          ...prev,
+          records: updatedRecords
+        };
+      } else {
+        // 該日期沒有記錄，新增
+        return {
+          ...prev,
+          records: [...prev.records, newRecord]
+        };
+      }
+    });
     setShowAddRecord(false);
   };
 
   const handleUpdateRecord = (updatedRecord, originalDate) => {
-    setData(prev => ({
-      ...prev,
-      records: prev.records.map(r => 
-        r.date === originalDate ? updatedRecord : r
-      )
-    }));
+    setData(prev => {
+      // 如果日期改變了，檢查新日期是否已存在
+      if (updatedRecord.date !== originalDate) {
+        const existingIndex = prev.records.findIndex(r => r.date === updatedRecord.date);
+        if (existingIndex !== -1) {
+          // 新日期已存在，刪除舊記錄，覆蓋新日期的記錄
+          const filteredRecords = prev.records.filter(r => r.date !== originalDate);
+          return {
+            ...prev,
+            records: filteredRecords.map(r => 
+              r.date === updatedRecord.date ? updatedRecord : r
+            )
+          };
+        }
+      }
+      // 日期沒變或新日期不存在，正常更新
+      return {
+        ...prev,
+        records: prev.records.map(r => 
+          r.date === originalDate ? updatedRecord : r
+        )
+      };
+    });
     setEditingRecord(null);
   };
 
@@ -326,23 +367,13 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
                 stroke="#4b5563"
                 tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
               />
-              <Tooltip 
-                formatter={(value) => [formatCurrency(value), '總資產']}
-                contentStyle={{ 
-                  backgroundColor: '#1f2937', 
-                  border: '1px solid #374151',
-                  borderRadius: '8px',
-                  color: '#f3f4f6'
-                }}
-                labelStyle={{ color: '#9ca3af' }}
-              />
               <Line 
                 type="monotone" 
                 dataKey="total" 
                 stroke="#10b981" 
                 strokeWidth={3}
                 dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
-                activeDot={{ r: 6, fill: '#34d399' }}
+                activeDot={false}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -366,20 +397,16 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
                   outerRadius={80}
                   paddingAngle={2}
                   dataKey="value"
+                  activeShape={false}
+                  style={{ outline: 'none' }}
                 >
                   {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={COLORS[index % COLORS.length]}
+                    />
                   ))}
                 </Pie>
-                <Tooltip 
-                  formatter={(value) => formatCurrency(value)} 
-                  contentStyle={{ 
-                    backgroundColor: '#1f2937', 
-                    border: '1px solid #374151',
-                    borderRadius: '8px',
-                    color: '#f3f4f6'
-                  }}
-                />
               </PieChart>
             </ResponsiveContainer>
             <div style={styles.legendList}>
@@ -1064,16 +1091,20 @@ const styles = {
     marginBottom: '12px',
     paddingBottom: '12px',
     borderBottom: '1px solid #374151',
+    gap: '12px',
   },
   recordDate: {
     color: '#9ca3af',
     fontSize: '14px',
     fontWeight: '500',
+    flexShrink: 0,
   },
   recordTotal: {
     color: '#10b981',
     fontSize: '18px',
     fontWeight: '700',
+    textAlign: 'right',
+    wordBreak: 'break-all',
   },
   recordDetails: {
     display: 'flex',
@@ -1086,15 +1117,19 @@ const styles = {
     padding: '8px 12px',
     backgroundColor: '#111827',
     borderRadius: '6px',
+    gap: '12px',
   },
   recordItemName: {
     color: '#9ca3af',
     fontSize: '14px',
+    flexShrink: 0,
   },
   recordItemValue: {
     color: '#f3f4f6',
     fontSize: '14px',
     fontWeight: '600',
+    textAlign: 'right',
+    wordBreak: 'break-all',
   },
   recordActions: {
     display: 'flex',
@@ -1320,6 +1355,7 @@ const styles = {
     fontSize: '15px',
     color: '#f3f4f6',
     outline: 'none',
+    minWidth: '180px',
   },
   assetInputs: {
     display: 'flex',
