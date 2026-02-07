@@ -371,8 +371,8 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
                 type="monotone" 
                 dataKey="total" 
                 stroke="#10b981" 
-                strokeWidth={3}
-                dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
+                strokeWidth={2}    // 線條稍微細一點，看起來更清爽
+                dot={false}        // 不顯示圓點
                 activeDot={false}
               />
             </LineChart>
