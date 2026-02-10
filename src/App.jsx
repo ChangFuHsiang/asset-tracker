@@ -134,14 +134,19 @@ export default function App() {
   const getLatestPieData = () => {
     if (data.records.length === 0) return [];
     const latestRecord = [...data.records].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-    return data.accounts
-      .filter(acc => acc.active && latestRecord.assets[acc.id])
-      .map(acc => ({
-        name: acc.name,
-        value: latestRecord.assets[acc.id] || 0,
-        category: acc.category
-      }))
-      .filter(item => item.value > 0);
+    const accountMap = Object.fromEntries(data.accounts.map(a => [a.id, a]));
+    
+    // 顯示記錄中所有有金額的帳戶，不管帳戶是否停用或刪除
+    return Object.entries(latestRecord.assets)
+      .filter(([id, amount]) => amount > 0)
+      .map(([id, amount]) => {
+        const account = accountMap[id];
+        return {
+          name: account ? account.name : id,
+          value: amount,
+          category: account ? account.category : '其他'
+        };
+      });
   };
 
   const handleAddRecord = (newRecord) => {
