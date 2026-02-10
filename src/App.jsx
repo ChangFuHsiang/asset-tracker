@@ -249,6 +249,7 @@ export default function App() {
             chartData={chartData} 
             pieData={getLatestPieData()}
             accounts={data.accounts}
+            records={data.records}
             latestTotal={chartData.length > 0 ? chartData[chartData.length - 1].total : 0}
           />
         )}
@@ -342,17 +343,21 @@ export default function App() {
 }
 
 // Dashboard 元件
-function Dashboard({ chartData, pieData, accounts, latestTotal }) {
-  const [timeRange, setTimeRange] = useState('all'); // 'all', '1y', '6m', '3m', '1m'
+function Dashboard({ chartData, pieData, accounts, records, latestTotal }) {
+  const [timeRange, setTimeRange] = useState('all'); // 'all', '6m', '3m'
+  const [assetViewMode, setAssetViewMode] = useState('pie'); // 'pie' 或 'history'
+  const [assetTimeRange, setAssetTimeRange] = useState('all'); // 帳戶歷史的時間範圍
+  const [sortBy, setSortBy] = useState('value'); // 'value', 'percent', 'change'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
 
   // 根據時間範圍篩選資料
-  const getFilteredData = () => {
-    if (timeRange === 'all' || chartData.length === 0) return chartData;
+  const getFilteredData = (range, data) => {
+    if (range === 'all' || data.length === 0) return data;
     
     const now = new Date();
     let cutoffDate = new Date();
     
-    switch (timeRange) {
+    switch (range) {
       case '1m':
         cutoffDate.setMonth(now.getMonth() - 1);
         break;
@@ -366,18 +371,17 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
         cutoffDate.setFullYear(now.getFullYear() - 1);
         break;
       default:
-        return chartData;
+        return data;
     }
     
-    return chartData.filter(item => {
-      // 將 yyyy/MM/dd 格式轉回 Date
+    return data.filter(item => {
       const parts = item.date.split('/');
       const itemDate = new Date(parts[0], parts[1] - 1, parts[2]);
       return itemDate >= cutoffDate;
     });
   };
 
-  const filteredData = getFilteredData();
+  const filteredData = getFilteredData(timeRange, chartData);
   
   // 計算篩選後的變化
   const totalChange = filteredData.length >= 2 
@@ -394,6 +398,109 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
     { value: '1y', label: '近1年' },
     { value: 'all', label: '全部' },
   ];
+
+  const assetTimeRangeOptions = [
+    { value: '3m', label: '近3月' },
+    { value: '6m', label: '近6月' },
+    { value: 'all', label: '全部' },
+  ];
+
+  // 計算表格資料（包含變化）
+  const getTableData = () => {
+    if (pieData.length === 0) return [];
+    
+    const sortedRecords = [...records].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const latestRecord = sortedRecords[0];
+    const previousRecord = sortedRecords[1];
+    
+    const total = pieData.reduce((sum, d) => sum + d.value, 0);
+    
+    const tableData = pieData.map((item, index) => {
+      const percent = total > 0 ? (item.value / total) * 100 : 0;
+      
+      // 找出帳戶 ID
+      const account = accounts.find(a => a.name === item.name);
+      const accountId = account?.id;
+      
+      // 計算跟上一筆的變化
+      let change = 0;
+      let changePercent = 0;
+      if (previousRecord && accountId) {
+        const prevValue = previousRecord.assets[accountId] || 0;
+        change = item.value - prevValue;
+        changePercent = prevValue > 0 ? ((change / prevValue) * 100) : (item.value > 0 ? 100 : 0);
+      }
+      
+      return {
+        name: item.name,
+        value: item.value,
+        percent,
+        change,
+        changePercent,
+        color: COLORS[index % COLORS.length],
+        accountId,
+      };
+    });
+    
+    // 排序
+    tableData.sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'value':
+          comparison = a.value - b.value;
+          break;
+        case 'percent':
+          comparison = a.percent - b.percent;
+          break;
+        case 'change':
+          comparison = a.change - b.change;
+          break;
+        default:
+          comparison = a.value - b.value;
+      }
+      return sortOrder === 'desc' ? -comparison : comparison;
+    });
+    
+    return tableData;
+  };
+
+  const tableData = getTableData();
+
+  // 處理排序點擊
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+  };
+
+  // 取得帳戶歷史資料（用於多線折線圖）
+  const getAccountHistoryData = () => {
+    const sortedRecords = [...records].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]));
+    
+    // 取得所有在 pieData 中的帳戶 ID
+    const activeAccountIds = pieData.map(p => {
+      const account = accounts.find(a => a.name === p.name);
+      return account?.id;
+    }).filter(Boolean);
+    
+    const historyData = sortedRecords.map(record => {
+      const item = { date: formatDate(record.date) };
+      activeAccountIds.forEach(id => {
+        const name = accountMap[id] || id;
+        item[name] = record.assets[id] || 0;
+      });
+      return item;
+    });
+    
+    return getFilteredData(assetTimeRange, historyData);
+  };
+
+  const accountHistoryData = getAccountHistoryData();
+  const accountNames = pieData.map(p => p.name);
 
   return (
     <div style={styles.dashboard}>
@@ -457,50 +564,162 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
         )}
       </div>
 
-      {/* 資產配置圓餅圖 */}
+      {/* 資產配置區塊 */}
       <div style={styles.chartCard}>
-        <h3 style={styles.chartTitle}>資產配置比例</h3>
+        <div style={styles.chartHeader}>
+          <h3 style={styles.chartTitle}>資產配置</h3>
+        </div>
+        
+        {/* 顯示模式切換 */}
+        <div style={styles.viewModeSelector}>
+          <button
+            style={{
+              ...styles.viewModeButton,
+              ...(assetViewMode === 'pie' ? styles.viewModeButtonActive : {}),
+            }}
+            onClick={() => setAssetViewMode('pie')}
+          >
+            配置比例
+          </button>
+          <button
+            style={{
+              ...styles.viewModeButton,
+              ...(assetViewMode === 'history' ? styles.viewModeButtonActive : {}),
+            }}
+            onClick={() => setAssetViewMode('history')}
+          >
+            帳戶歷史
+          </button>
+        </div>
+
         {pieData.length > 0 ? (
           <>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={45}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="value"
-                  activeShape={false}
-                  style={{ outline: 'none' }}
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}`} 
-                      fill={COLORS[index % COLORS.length]}
-                    />
+            {assetViewMode === 'pie' ? (
+              /* 圓餅圖模式 */
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={45}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    dataKey="value"
+                    activeShape={false}
+                    style={{ outline: 'none' }}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              /* 帳戶歷史模式 */
+              <>
+                <div style={styles.timeRangeSelector}>
+                  {assetTimeRangeOptions.map(option => (
+                    <button
+                      key={option.value}
+                      style={{
+                        ...styles.timeRangeButton,
+                        ...(assetTimeRange === option.value ? styles.timeRangeButtonActive : {}),
+                      }}
+                      onClick={() => setAssetTimeRange(option.value)}
+                    >
+                      {option.label}
+                    </button>
                   ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={styles.legendList}>
-              {pieData.map((item, index) => {
-                const total = pieData.reduce((sum, d) => sum + d.value, 0);
-                const percent = ((item.value / total) * 100).toFixed(1);
-                return (
-                  <div key={item.name} style={styles.legendItem}>
-                    <div style={styles.legendLeft}>
-                      <div style={{...styles.legendDot, backgroundColor: COLORS[index % COLORS.length]}} />
-                      <span style={styles.legendName}>{item.name}</span>
-                    </div>
-                    <div style={styles.legendRight}>
-                      <span style={styles.legendValue}>{formatCurrency(item.value)}</span>
-                      <span style={styles.legendPercent}>{percent}%</span>
-                    </div>
+                </div>
+                {accountHistoryData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={accountHistoryData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} stroke="#4b5563" />
+                      <YAxis 
+                        tick={{ fontSize: 10, fill: '#9ca3af' }} 
+                        stroke="#4b5563"
+                        tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                      />
+                      {accountNames.map((name, index) => (
+                        <Line 
+                          key={name}
+                          type="monotone" 
+                          dataKey={name} 
+                          stroke={COLORS[index % COLORS.length]} 
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div style={styles.emptyChart}>該時間範圍內無記錄</div>
+                )}
+              </>
+            )}
+            
+            {/* 表格式呈現 */}
+            <div style={styles.assetTable}>
+              {/* 表頭 */}
+              <div style={styles.tableHeader}>
+                <div style={styles.tableHeaderCell}>帳戶</div>
+                <button 
+                  style={{...styles.tableHeaderCell, ...styles.sortableHeader}}
+                  onClick={() => handleSort('value')}
+                >
+                  金額 {sortBy === 'value' && (sortOrder === 'desc' ? '▼' : '▲')}
+                </button>
+                <button 
+                  style={{...styles.tableHeaderCell, ...styles.sortableHeader}}
+                  onClick={() => handleSort('percent')}
+                >
+                  占比 {sortBy === 'percent' && (sortOrder === 'desc' ? '▼' : '▲')}
+                </button>
+                <button 
+                  style={{...styles.tableHeaderCell, ...styles.sortableHeader}}
+                  onClick={() => handleSort('change')}
+                >
+                  變化 {sortBy === 'change' && (sortOrder === 'desc' ? '▼' : '▲')}
+                </button>
+              </div>
+              
+              {/* 表格內容 */}
+              {tableData.map((item) => (
+                <div key={item.name} style={styles.tableRow}>
+                  <div style={styles.tableCell}>
+                    <div style={{...styles.tableDot, backgroundColor: item.color}} />
+                    <span style={styles.tableName}>{item.name}</span>
                   </div>
-                );
-              })}
+                  <div style={{...styles.tableCell, ...styles.tableCellRight}}>
+                    {formatCurrency(item.value)}
+                  </div>
+                  <div style={{...styles.tableCell, ...styles.tableCellRight}}>
+                    {item.percent.toFixed(1)}%
+                  </div>
+                  <div style={{
+                    ...styles.tableCell, 
+                    ...styles.tableCellRight,
+                    color: item.change >= 0 ? '#10b981' : '#ef4444',
+                  }}>
+                    {item.change !== 0 && (
+                      <>
+                        {item.change >= 0 ? '↑' : '↓'}
+                        {formatCurrency(Math.abs(item.change))}
+                        <span style={styles.changePercent}>
+                          ({item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(1)}%)
+                        </span>
+                      </>
+                    )}
+                    {item.change === 0 && '-'}
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         ) : (
@@ -1303,6 +1522,96 @@ const styles = {
     fontWeight: '600',
     minWidth: '50px',
     textAlign: 'right',
+  },
+
+  // 視圖模式切換
+  viewModeSelector: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '16px',
+  },
+  viewModeButton: {
+    flex: 1,
+    padding: '10px 16px',
+    backgroundColor: '#374151',
+    color: '#9ca3af',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  viewModeButtonActive: {
+    backgroundColor: '#065f46',
+    color: '#10b981',
+  },
+
+  // 資產表格
+  assetTable: {
+    marginTop: '16px',
+    paddingTop: '16px',
+    borderTop: '1px solid #374151',
+  },
+  tableHeader: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 80px 60px 100px',
+    gap: '8px',
+    padding: '8px 12px',
+    marginBottom: '8px',
+  },
+  tableHeaderCell: {
+    color: '#6b7280',
+    fontSize: '12px',
+    fontWeight: '500',
+    textAlign: 'left',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    cursor: 'default',
+  },
+  sortableHeader: {
+    cursor: 'pointer',
+    textAlign: 'right',
+  },
+  tableRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 80px 60px 100px',
+    gap: '8px',
+    padding: '10px 12px',
+    backgroundColor: '#111827',
+    borderRadius: '8px',
+    marginBottom: '6px',
+    alignItems: 'center',
+  },
+  tableCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
+    color: '#f3f4f6',
+  },
+  tableCellRight: {
+    justifyContent: 'flex-end',
+    textAlign: 'right',
+  },
+  tableDot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '3px',
+    flexShrink: 0,
+  },
+  tableName: {
+    fontSize: '13px',
+    fontWeight: '500',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  changePercent: {
+    fontSize: '11px',
+    marginLeft: '2px',
+    opacity: 0.8,
   },
 
   // 記錄列表
