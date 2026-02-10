@@ -205,7 +205,7 @@ export default function App() {
   const handleAddAccount = (account) => {
     setData(prev => ({
       ...prev,
-      accounts: [...prev.accounts, { ...account, id: generateId(), active: true }]
+      accounts: [...prev.accounts, { ...account, id: generateId(), active: true, deleted: false }]
     }));
   };
 
@@ -219,9 +219,12 @@ export default function App() {
   };
 
   const handleDeleteAccount = (id) => {
+    // 軟刪除：標記為已刪除，但保留資料供歷史記錄使用
     setData(prev => ({
       ...prev,
-      accounts: prev.accounts.filter(acc => acc.id !== id)
+      accounts: prev.accounts.map(acc => 
+        acc.id === id ? { ...acc, deleted: true, active: false } : acc
+      )
     }));
   };
 
@@ -306,7 +309,8 @@ export default function App() {
         <div style={styles.modalOverlay} onClick={() => setShowAddRecord(false)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <AddRecordForm 
-              accounts={data.accounts.filter(a => a.active)}
+              accounts={data.accounts.filter(a => a.active && !a.deleted)}
+              records={data.records}
               lastRecord={data.records.length > 0 ? [...data.records].sort((a, b) => new Date(b.date) - new Date(a.date))[0] : null}
               onSave={handleAddRecord}
               onCancel={() => setShowAddRecord(false)}
@@ -334,12 +338,57 @@ export default function App() {
 
 // Dashboard 元件
 function Dashboard({ chartData, pieData, accounts, latestTotal }) {
-  const totalChange = chartData.length >= 2 
-    ? chartData[chartData.length - 1].total - chartData[chartData.length - 2].total 
+  const [timeRange, setTimeRange] = useState('all'); // 'all', '1y', '6m', '3m', '1m'
+
+  // 根據時間範圍篩選資料
+  const getFilteredData = () => {
+    if (timeRange === 'all' || chartData.length === 0) return chartData;
+    
+    const now = new Date();
+    let cutoffDate = new Date();
+    
+    switch (timeRange) {
+      case '1m':
+        cutoffDate.setMonth(now.getMonth() - 1);
+        break;
+      case '3m':
+        cutoffDate.setMonth(now.getMonth() - 3);
+        break;
+      case '6m':
+        cutoffDate.setMonth(now.getMonth() - 6);
+        break;
+      case '1y':
+        cutoffDate.setFullYear(now.getFullYear() - 1);
+        break;
+      default:
+        return chartData;
+    }
+    
+    return chartData.filter(item => {
+      // 將 yyyy/MM/dd 格式轉回 Date
+      const parts = item.date.split('/');
+      const itemDate = new Date(parts[0], parts[1] - 1, parts[2]);
+      return itemDate >= cutoffDate;
+    });
+  };
+
+  const filteredData = getFilteredData();
+  
+  // 計算篩選後的變化
+  const totalChange = filteredData.length >= 2 
+    ? filteredData[filteredData.length - 1].total - filteredData[0].total 
     : 0;
-  const changePercent = chartData.length >= 2 && chartData[chartData.length - 2].total > 0
-    ? ((totalChange / chartData[chartData.length - 2].total) * 100).toFixed(1)
+  const changePercent = filteredData.length >= 2 && filteredData[0].total > 0
+    ? ((totalChange / filteredData[0].total) * 100).toFixed(1)
     : 0;
+
+  const timeRangeOptions = [
+    { value: '1m', label: '近1月' },
+    { value: '3m', label: '近3月' },
+    { value: '6m', label: '近6月' },
+    { value: '1y', label: '近1年' },
+    { value: 'all', label: '全部' },
+  ];
 
   return (
     <div style={styles.dashboard}>
@@ -347,7 +396,7 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
       <div style={styles.summaryCard}>
         <div style={styles.summaryLabel}>目前總資產</div>
         <div style={styles.summaryValue}>{formatCurrency(latestTotal)}</div>
-        {chartData.length >= 2 && (
+        {filteredData.length >= 2 && (
           <div style={{...styles.summaryChange, color: totalChange >= 0 ? '#10b981' : '#ef4444'}}>
             {totalChange >= 0 ? '↑' : '↓'} {formatCurrency(Math.abs(totalChange))} ({changePercent}%)
           </div>
@@ -356,10 +405,29 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
 
       {/* 總資產曲線 */}
       <div style={styles.chartCard}>
-        <h3 style={styles.chartTitle}>總資產變化</h3>
-        {chartData.length > 0 ? (
+        <div style={styles.chartHeader}>
+          <h3 style={styles.chartTitle}>總資產變化</h3>
+        </div>
+        
+        {/* 時間範圍選擇器 */}
+        <div style={styles.timeRangeSelector}>
+          {timeRangeOptions.map(option => (
+            <button
+              key={option.value}
+              style={{
+                ...styles.timeRangeButton,
+                ...(timeRange === option.value ? styles.timeRangeButtonActive : {}),
+              }}
+              onClick={() => setTimeRange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        {filteredData.length > 0 ? (
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+            <LineChart data={filteredData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} stroke="#4b5563" />
               <YAxis 
@@ -371,14 +439,16 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
                 type="monotone" 
                 dataKey="total" 
                 stroke="#10b981" 
-                strokeWidth={2}    // 線條稍微細一點，看起來更清爽
-                dot={false}        // 不顯示圓點
+                strokeWidth={2}
+                dot={false}
                 activeDot={false}
               />
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <div style={styles.emptyChart}>點擊右下角 + 新增第一筆記錄</div>
+          <div style={styles.emptyChart}>
+            {chartData.length > 0 ? '該時間範圍內無記錄' : '點擊右下角 + 新增第一筆記錄'}
+          </div>
         )}
       </div>
 
@@ -440,14 +510,12 @@ function Dashboard({ chartData, pieData, accounts, latestTotal }) {
 function RecordList({ records, accounts, calculateTotal, onDelete, onEdit }) {
   const sortedRecords = [...records].sort((a, b) => new Date(b.date) - new Date(a.date));
   const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]));
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const handleDelete = (date) => {
-    if (confirmDelete === date) {
-      onDelete(date);
-      setConfirmDelete(null);
-    } else {
-      setConfirmDelete(date);
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDelete(deleteTarget.date);
+      setDeleteTarget(null);
     }
   };
 
@@ -482,16 +550,45 @@ function RecordList({ records, accounts, calculateTotal, onDelete, onEdit }) {
               <button 
                 style={{
                   ...styles.deleteButton,
-                  backgroundColor: confirmDelete === record.date ? '#dc2626' : '#374151',
-                  color: confirmDelete === record.date ? '#ffffff' : '#9ca3af',
+                  backgroundColor: '#7f1d1d',
+                  color: '#fca5a5',
                 }}
-                onClick={() => handleDelete(record.date)}
+                onClick={() => setDeleteTarget(record)}
               >
-                {confirmDelete === record.date ? '確認刪除' : '刪除'}
+                刪除
               </button>
             </div>
           </div>
         ))
+      )}
+
+      {/* 刪除確認彈窗 */}
+      {deleteTarget && (
+        <div style={styles.modalOverlay} onClick={() => setDeleteTarget(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>確認刪除</h3>
+            <p style={styles.confirmText}>
+              確定要刪除 {formatDate(deleteTarget.date)} 的記錄嗎？
+            </p>
+            <p style={styles.confirmSubtext}>
+              總資產：{formatCurrency(calculateTotal(deleteTarget.assets))}
+            </p>
+            <div style={styles.confirmActions}>
+              <button 
+                style={styles.confirmCancelButton}
+                onClick={() => setDeleteTarget(null)}
+              >
+                取消
+              </button>
+              <button 
+                style={styles.confirmDeleteButton}
+                onClick={handleConfirmDelete}
+              >
+                確認刪除
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -501,9 +598,14 @@ function RecordList({ records, accounts, calculateTotal, onDelete, onEdit }) {
 function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImportData }) {
   const [showForm, setShowForm] = useState(false);
   const [newAccount, setNewAccount] = useState({ name: '', category: '銀行' });
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // 要刪除的帳戶
   const [importMessage, setImportMessage] = useState(null);
   const fileInputRef = React.useRef(null);
+
+  // 過濾掉已刪除的帳戶
+  const visibleAccounts = accounts.filter(a => !a.deleted);
+  const activeAccounts = visibleAccounts.filter(a => a.active);
+  const inactiveAccounts = visibleAccounts.filter(a => !a.active);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -515,12 +617,10 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImport
     setShowForm(false);
   };
 
-  const handleDelete = (id) => {
-    if (confirmDelete === id) {
-      onDelete(id);
-      setConfirmDelete(null);
-    } else {
-      setConfirmDelete(id);
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDelete(deleteTarget.id);
+      setDeleteTarget(null);
     }
   };
 
@@ -626,8 +726,8 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImport
       )}
 
       <div style={styles.accountList}>
-        {accounts.map(account => (
-          <div key={account.id} style={{...styles.accountCard, opacity: account.active ? 1 : 0.5}}>
+        {activeAccounts.map(account => (
+          <div key={account.id} style={styles.accountCard}>
             <div style={styles.accountInfo}>
               <span style={styles.accountName}>{account.name}</span>
               <span style={styles.accountCategory}>{account.category}</span>
@@ -636,27 +736,95 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImport
               <button 
                 style={{
                   ...styles.smallButton, 
-                  backgroundColor: account.active ? '#374151' : '#065f46',
-                  color: account.active ? '#9ca3af' : '#10b981',
+                  backgroundColor: '#374151',
+                  color: '#9ca3af',
                 }}
                 onClick={() => onToggle(account.id)}
               >
-                {account.active ? '停用' : '啟用'}
+                停用
               </button>
               <button 
                 style={{
                   ...styles.smallButton, 
-                  backgroundColor: confirmDelete === account.id ? '#dc2626' : '#374151',
-                  color: confirmDelete === account.id ? '#ffffff' : '#9ca3af',
+                  backgroundColor: '#7f1d1d',
+                  color: '#fca5a5',
                 }}
-                onClick={() => handleDelete(account.id)}
+                onClick={() => setDeleteTarget(account)}
               >
-                {confirmDelete === account.id ? '確認' : '刪除'}
+                刪除
               </button>
             </div>
           </div>
         ))}
+        
+        {/* 已停用的帳戶 */}
+        {inactiveAccounts.length > 0 && (
+          <>
+            <div style={{ marginTop: '20px', marginBottom: '8px', color: '#6b7280', fontSize: '13px' }}>
+              已停用的帳戶
+            </div>
+            {inactiveAccounts.map(account => (
+              <div key={account.id} style={{...styles.accountCard, opacity: 0.6}}>
+                <div style={styles.accountInfo}>
+                  <span style={styles.accountName}>{account.name}</span>
+                  <span style={styles.accountCategory}>{account.category}</span>
+                </div>
+                <div style={styles.accountActions}>
+                  <button 
+                    style={{
+                      ...styles.smallButton, 
+                      backgroundColor: '#065f46',
+                      color: '#10b981',
+                    }}
+                    onClick={() => onToggle(account.id)}
+                  >
+                    啟用
+                  </button>
+                  <button 
+                    style={{
+                      ...styles.smallButton, 
+                      backgroundColor: '#7f1d1d',
+                      color: '#fca5a5',
+                    }}
+                    onClick={() => setDeleteTarget(account)}
+                  >
+                    刪除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
       </div>
+
+      {/* 刪除確認彈窗 */}
+      {deleteTarget && (
+        <div style={styles.modalOverlay} onClick={() => setDeleteTarget(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>確認刪除</h3>
+            <p style={styles.confirmText}>
+              確定要刪除「{deleteTarget.name}」嗎？
+            </p>
+            <p style={styles.confirmSubtext}>
+              刪除後帳戶將從列表隱藏，但歷史記錄仍會保留。
+            </p>
+            <div style={styles.confirmActions}>
+              <button 
+                style={styles.confirmCancelButton}
+                onClick={() => setDeleteTarget(null)}
+              >
+                取消
+              </button>
+              <button 
+                style={styles.confirmDeleteButton}
+                onClick={handleConfirmDelete}
+              >
+                確認刪除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 資料備份區塊 */}
       <div style={styles.backupSection}>
@@ -675,7 +843,7 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImport
 
         <div style={styles.backupInfo}>
           <span style={styles.backupInfoText}>
-            目前有 {accounts.length} 個帳戶、{allData.records.length} 筆記錄
+            目前有 {visibleAccounts.length} 個帳戶、{allData.records.length} 筆記錄
           </span>
         </div>
 
@@ -703,7 +871,7 @@ function AccountManager({ accounts, onAdd, onToggle, onDelete, allData, onImport
 }
 
 // 新增記錄表單
-function AddRecordForm({ accounts, lastRecord, onSave, onCancel }) {
+function AddRecordForm({ accounts, records, lastRecord, onSave, onCancel }) {
   const today = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(today);
   const [error, setError] = useState('');
@@ -714,6 +882,9 @@ function AddRecordForm({ accounts, lastRecord, onSave, onCancel }) {
     });
     return initial;
   });
+
+  // 檢查該日期是否已有記錄
+  const existingRecord = records.find(r => r.date === date);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -754,6 +925,13 @@ function AddRecordForm({ accounts, lastRecord, onSave, onCancel }) {
             style={styles.input}
           />
         </div>
+
+        {/* 覆蓋提示 */}
+        {existingRecord && (
+          <div style={styles.overwriteWarning}>
+            ⚠️ 該日期已有記錄，儲存後將會覆蓋原有資料
+          </div>
+        )}
         
         <div style={styles.assetInputs}>
           {accounts.map(account => (
@@ -779,7 +957,7 @@ function AddRecordForm({ accounts, lastRecord, onSave, onCancel }) {
             取消
           </button>
           <button type="submit" style={styles.submitButton}>
-            儲存記錄
+            {existingRecord ? '覆蓋並儲存' : '儲存記錄'}
           </button>
         </div>
       </form>
@@ -791,9 +969,18 @@ function AddRecordForm({ accounts, lastRecord, onSave, onCancel }) {
 function EditRecordForm({ accounts, record, onSave, onCancel }) {
   const [date, setDate] = useState(record.date);
   const [error, setError] = useState('');
+  
+  // 計算要顯示的帳戶：活躍帳戶 + 該記錄中有金額但已刪除/停用的帳戶
+  const activeAccounts = accounts.filter(a => a.active && !a.deleted);
+  const recordAccountIds = Object.keys(record.assets);
+  const deletedOrInactiveWithValue = accounts.filter(a => 
+    (a.deleted || !a.active) && recordAccountIds.includes(a.id) && record.assets[a.id] > 0
+  );
+  const displayAccounts = [...activeAccounts, ...deletedOrInactiveWithValue];
+  
   const [assets, setAssets] = useState(() => {
     const initial = {};
-    accounts.forEach(acc => {
+    displayAccounts.forEach(acc => {
       initial[acc.id] = record.assets[acc.id] || '';
     });
     return initial;
@@ -815,6 +1002,13 @@ function EditRecordForm({ accounts, record, onSave, onCancel }) {
     }
 
     onSave({ date, assets: processedAssets }, record.date);
+  };
+
+  // 取得帳戶的狀態標籤
+  const getAccountStatus = (account) => {
+    if (account.deleted) return '已刪除';
+    if (!account.active) return '已停用';
+    return null;
   };
 
   return (
@@ -840,22 +1034,45 @@ function EditRecordForm({ accounts, record, onSave, onCancel }) {
         </div>
         
         <div style={styles.assetInputs}>
-          {accounts.map(account => (
-            <div key={account.id} style={styles.assetInputRow}>
-              <label style={styles.assetLabel}>
-                {account.name}
-                <span style={styles.assetCategory}>({account.category})</span>
-              </label>
-              <input
-                type="number"
-                value={assets[account.id]}
-                onChange={(e) => setAssets({ ...assets, [account.id]: e.target.value })}
-                style={styles.assetInput}
-                placeholder="0"
-                min="0"
-              />
-            </div>
-          ))}
+          {displayAccounts.map(account => {
+            const status = getAccountStatus(account);
+            const isInactive = status !== null;
+            return (
+              <div 
+                key={account.id} 
+                style={{
+                  ...styles.assetInputRow,
+                  opacity: isInactive ? 0.6 : 1,
+                }}
+              >
+                <label style={styles.assetLabel}>
+                  {account.name}
+                  {status ? (
+                    <span style={{ 
+                      color: '#ef4444', 
+                      fontSize: '11px', 
+                      marginLeft: '6px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                    }}>
+                      {status}
+                    </span>
+                  ) : (
+                    <span style={styles.assetCategory}>({account.category})</span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  value={assets[account.id]}
+                  onChange={(e) => setAssets({ ...assets, [account.id]: e.target.value })}
+                  style={styles.assetInput}
+                  placeholder="0"
+                  min="0"
+                />
+              </div>
+            );
+          })}
         </div>
 
         <div style={styles.formActions}>
@@ -875,10 +1092,9 @@ function EditRecordForm({ accounts, record, onSave, onCancel }) {
 const styles = {
   container: {
     minHeight: '100vh',
-    minHeight: '100dvh',
     backgroundColor: '#111827',
     fontFamily: "'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif",
-    paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+    paddingBottom: '80px',
   },
   offlineBanner: {
     backgroundColor: '#292524',
@@ -918,7 +1134,6 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-around',
     padding: '8px 0',
-    paddingBottom: 'calc(8px + env(safe-area-inset-bottom, 0px))',
     zIndex: 100,
   },
   navItem: {
@@ -944,7 +1159,7 @@ const styles = {
   // 浮動按鈕
   fab: {
     position: 'fixed',
-    bottom: 'calc(90px + env(safe-area-inset-bottom, 0px))',
+    bottom: '90px',
     right: '20px',
     width: '56px',
     height: '56px',
@@ -995,12 +1210,38 @@ const styles = {
     padding: '20px',
     border: '1px solid #374151',
   },
+  chartHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '8px',
+  },
   chartTitle: {
     color: '#f3f4f6',
     fontSize: '16px',
     fontWeight: '600',
-    marginTop: 0,
+    margin: 0,
+  },
+  timeRangeSelector: {
+    display: 'flex',
+    gap: '4px',
     marginBottom: '16px',
+    flexWrap: 'wrap',
+  },
+  timeRangeButton: {
+    padding: '6px 12px',
+    backgroundColor: '#374151',
+    color: '#9ca3af',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  timeRangeButtonActive: {
+    backgroundColor: '#065f46',
+    color: '#10b981',
   },
   emptyChart: {
     height: '200px',
@@ -1431,5 +1672,70 @@ const styles = {
     fontSize: '14px',
     fontWeight: '500',
     border: '1px solid rgba(239, 68, 68, 0.3)',
+  },
+  
+  // 覆蓋警告
+  overwriteWarning: {
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    color: '#fbbf24',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    marginTop: '12px',
+    fontSize: '13px',
+    fontWeight: '500',
+    border: '1px solid rgba(251, 191, 36, 0.3)',
+  },
+  
+  // 確認彈窗
+  confirmDialog: {
+    backgroundColor: '#1f2937',
+    borderRadius: '16px',
+    padding: '24px',
+    width: '90%',
+    maxWidth: '320px',
+    border: '1px solid #374151',
+  },
+  confirmTitle: {
+    color: '#f3f4f6',
+    fontSize: '18px',
+    fontWeight: '600',
+    margin: '0 0 12px 0',
+  },
+  confirmText: {
+    color: '#d1d5db',
+    fontSize: '15px',
+    margin: '0 0 8px 0',
+    lineHeight: '1.5',
+  },
+  confirmSubtext: {
+    color: '#9ca3af',
+    fontSize: '13px',
+    margin: '0 0 20px 0',
+  },
+  confirmActions: {
+    display: 'flex',
+    gap: '12px',
+  },
+  confirmCancelButton: {
+    flex: 1,
+    padding: '12px',
+    backgroundColor: '#374151',
+    color: '#9ca3af',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  confirmDeleteButton: {
+    flex: 1,
+    padding: '12px',
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: 'pointer',
   },
 };
