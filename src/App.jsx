@@ -479,13 +479,14 @@ function Dashboard({ chartData, pieData, accounts, records, latestTotal }) {
 
         {filteredData.length > 0 ? (
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={filteredData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+            <LineChart data={filteredData} margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} stroke="#4b5563" />
               <YAxis 
                 tick={{ fontSize: 11, fill: '#9ca3af' }} 
                 stroke="#4b5563"
                 tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                width={45}
               />
               {showDots && (
                 <Tooltip 
@@ -600,13 +601,14 @@ function Dashboard({ chartData, pieData, accounts, records, latestTotal }) {
                     
                     {accountHistoryData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
-                        <LineChart data={accountHistoryData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                        <LineChart data={accountHistoryData} margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} stroke="#4b5563" />
                           <YAxis 
                             tick={{ fontSize: 10, fill: '#9ca3af' }} 
                             stroke="#4b5563"
                             tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                            width={45}
                           />
                           {showAssetDots && (
                             <Tooltip 
